@@ -2,6 +2,7 @@ import { useState, useRef, useEffect } from 'react';
 
 export default function Admin() {
     const localVideoRef = useRef(null);
+    const remoteAudioRef = useRef(null); // For receiving client's audio
     const pc = useRef(null);
     const ws = useRef(null);
     const [callInProgress, setCallInProgress] = useState(false);
@@ -13,20 +14,21 @@ export default function Admin() {
             const data = JSON.parse(event.data);
 
             if (data.type === 'answer') {
-                pc.current.setRemoteDescription(new RTCSessionDescription(data.answer));
+                if (pc.current.signalingState === "have-local-offer") {
+                    pc.current.setRemoteDescription(new RTCSessionDescription(data.answer));
+                }
             } else if (data.type === 'candidate') {
                 pc.current.addIceCandidate(new RTCIceCandidate(data.candidate));
             }
         };
 
         pc.current = new RTCPeerConnection();
+
         pc.current.ontrack = event => {
-            if (!remoteVideoRef.current.srcObject) {
-                remoteVideoRef.current.srcObject = event.streams[0];
-            } else {
-                event.streams[0].getAudioTracks().forEach(track => {
-                    remoteVideoRef.current.srcObject.addTrack(track);
-                });
+            const [stream] = event.streams;
+
+            if (event.track.kind === "audio") {
+                remoteAudioRef.current.srcObject = stream;
             }
         };
         
@@ -58,6 +60,7 @@ export default function Admin() {
         <div>
             <h1>Admin Page</h1>
             <video ref={localVideoRef} autoPlay muted></video>
+            <audio ref={remoteAudioRef} autoPlay></audio> {/* Add this line to play client's audio */}
             {!callInProgress && <button onClick={startCall}>Start Call</button>}
             {callInProgress && <p>Call in progress...</p>}
         </div>

@@ -11,24 +11,23 @@ export default function Client() {
 
         ws.current.onmessage = async event => {
             const data = JSON.parse(event.data);
-
+        
             if (data.type === 'offer') {
                 setCallStatus("Call accepted. Connecting...");
                 await pc.current.setRemoteDescription(new RTCSessionDescription(data.offer));
+        
+                // Capture and send the client's audio stream BEFORE creating the answer
+                const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+                stream.getTracks().forEach(track => pc.current.addTrack(track, stream));
+        
                 const answer = await pc.current.createAnswer();
                 await pc.current.setLocalDescription(answer);
                 ws.current.send(JSON.stringify({ type: 'answer', answer }));
-
-                // Capture and send the client's audio stream
-                navigator.mediaDevices.getUserMedia({ audio: true })
-                    .then(stream => {
-                        stream.getTracks().forEach(track => pc.current.addTrack(track, stream));
-                    })
-                    .catch(error => console.error("Error accessing microphone:", error));
             } else if (data.type === 'candidate') {
                 pc.current.addIceCandidate(new RTCIceCandidate(data.candidate));
             }
         };
+        
 
         pc.current = new RTCPeerConnection();
 
