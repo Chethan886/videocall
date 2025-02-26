@@ -12,8 +12,11 @@ export default function Client() {
     const [callStatus, setCallStatus] = useState("Request a call");
     const [messages, setMessages] = useState([]);
     const [message, setMessage] = useState("");
-    const [clientId, setClientId] = useState(`client-${Math.floor(Math.random() * 10000)}`);
-    const [roomId, setRoomId] = useState(null);
+const [clientId, setClientId] = useState("");
+
+  useEffect(() => {
+    setClientId(`client-${Math.floor(Math.random() * 10000)}`);
+  }, []);    const [roomId, setRoomId] = useState(null);
 
     const SERVER_URL = "http://3.87.251.192:3001";
 

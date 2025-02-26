@@ -15,8 +15,11 @@ export default function Admin() {
     const [currentClientId, setCurrentClientId] = useState(null);
     const [messages, setMessages] = useState([]);
     const [message, setMessage] = useState("");
-    const [repId, setRepId] = useState(`rep-${Math.floor(Math.random() * 10000)}`);
-    const [roomId, setRoomId] = useState(null);
+    const [repId, setRepId] = useState("");
+
+    useEffect(() => {
+      setRepId(`rep-${Math.floor(Math.random() * 10000)}`);
+    }, []);    const [roomId, setRoomId] = useState(null);
     const [debug, setDebug] = useState([]);
     const [connectionStatus, setConnectionStatus] = useState("Not Connected");
 
