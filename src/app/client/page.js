@@ -15,7 +15,7 @@ export default function Client() {
     const [clientId, setClientId] = useState(`client-${Math.floor(Math.random() * 10000)}`);
     const [roomId, setRoomId] = useState(null);
 
-    const SERVER_URL = "http://localhost:3001";
+    const SERVER_URL = "http://3.87.251.192:3001";
 
     useEffect(() => {
         // Initialize Socket.IO connection
@@ -94,9 +94,66 @@ export default function Client() {
             });
         });
 
+        const pendingIceCandidates = [];
+
         socket.current.on("ice_candidate", (data) => {
             if (peerConnection.current) {
-                peerConnection.current.addIceCandidate(new RTCIceCandidate(data.candidate));
+                // If we already have a remote description set, add the candidate immediately
+                if (peerConnection.current.remoteDescription) {
+                    peerConnection.current.addIceCandidate(new RTCIceCandidate(data.candidate))
+                        .catch(err => console.error("Error adding received ice candidate", err));
+                } else {
+                    // Otherwise store it in the pending candidates array
+                    pendingIceCandidates.push(data.candidate);
+                }
+            }
+        });
+        
+        // Then modify your setRemoteDescription code in the "offer" handler
+        socket.current.on("offer", async (data) => {
+            if (!peerConnection.current) {
+                await createPeerConnection(data.room);
+            }
+            
+            try {
+                await peerConnection.current.setRemoteDescription(new RTCSessionDescription(data.offer));
+                
+                // After setting remote description, add any pending ICE candidates
+                if (pendingIceCandidates.length > 0) {
+                    const promises = pendingIceCandidates.map(candidate => 
+                        peerConnection.current.addIceCandidate(new RTCIceCandidate(candidate))
+                    );
+                    await Promise.all(promises);
+                    pendingIceCandidates.length = 0; // Clear the array
+                }
+                
+                const answer = await peerConnection.current.createAnswer();
+                await peerConnection.current.setLocalDescription(answer);
+                
+                socket.current.emit("answer", {
+                    answer,
+                    room: data.room
+                });
+            } catch (error) {
+                console.error("Error handling offer:", error);
+            }
+        });
+        
+        // Similarly modify the answer handler to apply pending ICE candidates
+        socket.current.on("answer", async (data) => {
+            try {
+                await peerConnection.current.setRemoteDescription(new RTCSessionDescription(data.answer));
+                
+                // After setting remote description, add any pending ICE candidates
+                if (pendingIceCandidates.length > 0) {
+                    const promises = pendingIceCandidates.map(candidate => 
+                        peerConnection.current.addIceCandidate(new RTCIceCandidate(candidate))
+                    );
+                    await Promise.all(promises);
+                    pendingIceCandidates.length = 0; // Clear the array
+                }
+            } catch (error) {
+                console.error("Error handling answer:", error);
             }
         });
 
