@@ -1,4 +1,4 @@
-"use client"
+"use client";
 import { useState, useRef, useEffect } from "react";
 import { io } from "socket.io-client";
 
@@ -8,14 +8,15 @@ export default function Client() {
     const peerConnection = useRef(null);
     const socket = useRef(null);
     const localStream = useRef(null);
-    
+    const iceCandidateQueue = useRef([]); // Queue for ICE candidates
+
     const [callStatus, setCallStatus] = useState("Request a call");
     const [messages, setMessages] = useState([]);
     const [message, setMessage] = useState("");
     const [clientId, setClientId] = useState(`client-${Math.floor(Math.random() * 10000)}`);
     const [roomId, setRoomId] = useState(null);
 
-    const SERVER_URL = "http://localhost:3001";
+    const SERVER_URL = "http://3.87.251.192:3001";
 
     useEffect(() => {
         // Initialize Socket.IO connection
@@ -29,7 +30,7 @@ export default function Client() {
                     headers: { "Content-Type": "application/json" },
                     body: JSON.stringify({ client_id: clientId })
                 });
-                
+
                 const data = await response.json();
                 if (data.active) {
                     setCallStatus("Call in progress");
@@ -40,17 +41,17 @@ export default function Client() {
         };
 
         checkClientStatus();
-        
+
         // Socket event listeners
         socket.current.on("call_accepted", async (data) => {
             if (data.client_id === clientId) {
                 const roomId = `${data.client_id}-${data.rep_id}`;
                 setRoomId(roomId);
                 setCallStatus("Call accepted. Connecting...");
-                
+
                 // Join the room
                 socket.current.emit("join_room", { room: roomId });
-                
+
                 // Start WebRTC connection
                 await startCall(roomId);
             }
@@ -83,11 +84,17 @@ export default function Client() {
             if (!peerConnection.current) {
                 await createPeerConnection(data.room);
             }
-            
+
+            // Set remote description
             await peerConnection.current.setRemoteDescription(new RTCSessionDescription(data.offer));
+
+            // Process queued ICE candidates
+            processIceCandidateQueue();
+
+            // Create and send answer
             const answer = await peerConnection.current.createAnswer();
             await peerConnection.current.setLocalDescription(answer);
-            
+
             socket.current.emit("answer", {
                 answer,
                 room: data.room
@@ -96,7 +103,15 @@ export default function Client() {
 
         socket.current.on("ice_candidate", (data) => {
             if (peerConnection.current) {
-                peerConnection.current.addIceCandidate(new RTCIceCandidate(data.candidate));
+                if (!peerConnection.current.remoteDescription) {
+                    // Queue the ICE candidate if remote description is not set
+                    iceCandidateQueue.current.push(data.candidate);
+                } else {
+                    // Add the ICE candidate immediately
+                    peerConnection.current.addIceCandidate(new RTCIceCandidate(data.candidate)).catch((error) => {
+                        console.error("Error adding ICE candidate:", error);
+                    });
+                }
             }
         });
 
@@ -109,12 +124,25 @@ export default function Client() {
             endLocalStream();
             if (peerConnection.current) {
                 peerConnection.current.close();
+                peerConnection.current = null;
             }
             if (socket.current) {
                 socket.current.disconnect();
             }
         };
     }, [clientId]);
+
+    // Process queued ICE candidates
+    const processIceCandidateQueue = () => {
+        iceCandidateQueue.current.forEach(async (candidate) => {
+            try {
+                await peerConnection.current.addIceCandidate(new RTCIceCandidate(candidate));
+            } catch (error) {
+                console.error("Error adding queued ICE candidate:", error);
+            }
+        });
+        iceCandidateQueue.current = []; // Clear the queue
+    };
 
     const endLocalStream = () => {
         if (localStream.current) {
@@ -125,34 +153,38 @@ export default function Client() {
 
     const createPeerConnection = async (room) => {
         try {
-            // Get TURN server credentials
+            // Fetch TURN server credentials
             const response = await fetch(`${SERVER_URL}/get-turn-credentials`, {
                 method: "POST",
                 headers: { "Content-Type": "application/json" }
             });
-            
+
+            if (!response.ok) {
+                throw new Error("Failed to fetch TURN credentials");
+            }
+
             const data = await response.json();
-            
+
             // Create new RTCPeerConnection with TURN servers
             peerConnection.current = new RTCPeerConnection({
                 iceServers: data.iceServers
             });
-            
+
             // Add local stream to peer connection
             if (!localStream.current) {
                 localStream.current = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
                 localVideoRef.current.srcObject = localStream.current;
             }
-            
+
             localStream.current.getTracks().forEach(track => {
                 peerConnection.current.addTrack(track, localStream.current);
             });
-            
+
             // Set up event handlers for the peer connection
             peerConnection.current.ontrack = (event) => {
                 remoteVideoRef.current.srcObject = event.streams[0];
             };
-            
+
             peerConnection.current.onicecandidate = (event) => {
                 if (event.candidate) {
                     socket.current.emit("ice_candidate", {
@@ -161,8 +193,6 @@ export default function Client() {
                     });
                 }
             };
-
-            return peerConnection.current;
         } catch (error) {
             console.error("Error creating peer connection:", error);
             setCallStatus("Failed to connect. Try again.");
@@ -173,11 +203,11 @@ export default function Client() {
     const startCall = async (room) => {
         try {
             await createPeerConnection(room);
-            
+
             // Create and send offer
             const offer = await peerConnection.current.createOffer();
             await peerConnection.current.setLocalDescription(offer);
-            
+
             socket.current.emit("offer", {
                 offer,
                 room
@@ -192,15 +222,15 @@ export default function Client() {
     const requestCall = async () => {
         try {
             setCallStatus("Requesting call...");
-            
+
             const response = await fetch(`${SERVER_URL}/request_call`, {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify({ client_id: clientId })
             });
-            
+
             const data = await response.json();
-            
+
             if (response.status === 200) {
                 setCallStatus("Waiting for admin to accept your call...");
             } else if (response.status === 409) {
@@ -221,14 +251,14 @@ export default function Client() {
         if (socket.current) {
             socket.current.emit("end_call", { client_id: clientId });
         }
-        
+
         endLocalStream();
-        
+
         if (peerConnection.current) {
             peerConnection.current.close();
             peerConnection.current = null;
         }
-        
+
         setCallStatus("Call ended");
         setTimeout(() => setCallStatus("Request a call"), 3000);
     };
@@ -240,7 +270,7 @@ export default function Client() {
                 message: message,
                 sender: clientId
             };
-            
+
             socket.current.emit("send_message", messageData);
             setMessages((prev) => [...prev, { sender: "You", text: message }]);
             setMessage("");
@@ -256,13 +286,13 @@ export default function Client() {
                     <div className="flex-1 flex items-center justify-center relative">
                         {/* Remote Video (Main) */}
                         <video ref={remoteVideoRef} autoPlay playsInline className="w-full h-full object-cover rounded-lg"></video>
-                        
+
                         {/* Local Video (Picture-in-Picture) */}
                         <div className="absolute bottom-4 right-4 w-1/4 h-1/4">
                             <video ref={localVideoRef} autoPlay muted playsInline className="w-full h-full object-cover rounded-lg"></video>
                         </div>
-                        
-                        {callStatus !== "Call accepted. Connecting..." && 
+
+                        {callStatus !== "Call accepted. Connecting..." &&
                          callStatus !== "Waiting for admin to accept your call..." && (
                             <div className="absolute inset-0 flex items-center justify-center bg-black bg-opacity-50 rounded-lg">
                                 <p className="text-white text-lg font-medium">No active call</p>

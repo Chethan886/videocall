@@ -8,6 +8,7 @@ export default function Admin() {
     const peerConnection = useRef(null);
     const socket = useRef(null);
     const localStream = useRef(null);
+    const iceCandidatesBuffer = useRef([]);
     
     const [callState, setCallState] = useState("idle"); // idle, incoming, active
     const [pendingCalls, setPendingCalls] = useState({});
@@ -17,7 +18,7 @@ export default function Admin() {
     const [repId, setRepId] = useState(`rep-${Math.floor(Math.random() * 10000)}`);
     const [roomId, setRoomId] = useState(null);
 
-    const SERVER_URL = "http://localhost:3001";
+    const SERVER_URL = "http://3.87.251.192:3001";
 
     useEffect(() => {
         // Initialize Socket.IO connection
@@ -83,14 +84,32 @@ export default function Admin() {
 
         socket.current.on("answer", (data) => {
             if (peerConnection.current) {
-                peerConnection.current.setRemoteDescription(new RTCSessionDescription(data.answer));
+                peerConnection.current.setRemoteDescription(new RTCSessionDescription(data.answer))
+                .then(() => {
+                    // After setting remote description, process any buffered ICE candidates
+                    iceCandidatesBuffer.current.forEach(candidate => {
+                        peerConnection.current.addIceCandidate(new RTCIceCandidate(candidate))
+                        .catch(err => console.error("Error adding buffered ice candidate:", err));
+                    });
+                    iceCandidatesBuffer.current = [];
+                })
+                .catch(err => console.error("Error setting remote description:", err));
             }
         });
 
         socket.current.on("ice_candidate", (data) => {
-            if (peerConnection.current) {
-                peerConnection.current.addIceCandidate(new RTCIceCandidate(data.candidate));
+            const candidate = data.candidate;
+            
+            // If peer connection doesn't exist yet or remote description isn't set,
+            // buffer the ICE candidate for later
+            if (!peerConnection.current || !peerConnection.current.remoteDescription) {
+                iceCandidatesBuffer.current.push(candidate);
+                return;
             }
+            
+            // Otherwise add the candidate immediately
+            peerConnection.current.addIceCandidate(new RTCIceCandidate(candidate))
+            .catch(err => console.error("Error adding ice candidate:", err));
         });
 
         // Check for pending calls periodically
@@ -117,6 +136,9 @@ export default function Admin() {
 
     const createPeerConnection = async (clientId) => {
         try {
+            // Clear the ice candidates buffer when creating a new connection
+            iceCandidatesBuffer.current = [];
+            
             // Get TURN server credentials
             const response = await fetch(`${SERVER_URL}/get-turn-credentials`, {
                 method: "POST",
