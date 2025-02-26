@@ -7,7 +7,7 @@ export default function Admin() {
     const [callInProgress, setCallInProgress] = useState(false);
 
     useEffect(() => {
-        ws.current = new WebSocket('ws://localhost:3002');
+        ws.current = new WebSocket('ws://3.87.251.192:5000');
 
         ws.current.onmessage = event => {
             const data = JSON.parse(event.data);
@@ -36,7 +36,7 @@ export default function Admin() {
                 stream.getTracks().forEach(track => pc.current.addTrack(track, stream));
             });
 
-        fetch('http://localhost:3001/get-turn-credentials', { method: 'POST', headers: { 'Content-Type': 'application/json' } })
+        fetch('http://3.87.251.192:3001/get-turn-credentials', { method: 'POST', headers: { 'Content-Type': 'application/json' } })
             .then(res => res.json())
             .then(data => pc.current.setConfiguration({ iceServers: data.iceServers }));
 

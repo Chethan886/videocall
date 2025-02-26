@@ -3,11 +3,11 @@ import { useState, useRef, useEffect } from 'react';
 export default function Client() {
     const remoteVideoRef = useRef(null);
     const pc = useRef(null);
-    const ws = useRef(null);
+    const ws = useRef(null); 
     const [callStatus, setCallStatus] = useState("Request a call");
 
     useEffect(() => {
-        ws.current = new WebSocket('ws://localhost:3002');
+        ws.current = new WebSocket('ws://3.87.251.192:5000');
 
         ws.current.onmessage = async event => {
             const data = JSON.parse(event.data);
@@ -32,7 +32,7 @@ export default function Client() {
 
         pc.current = new RTCPeerConnection();
 
-        fetch('http://localhost:3001/get-turn-credentials', { method: 'POST', headers: { 'Content-Type': 'application/json' } })
+        fetch('http://3.87.251.192:3001/get-turn-credentials', { method: 'POST', headers: { 'Content-Type': 'application/json' } })
             .then(res => res.json())
             .then(data => pc.current.setConfiguration({ iceServers: data.iceServers }));
 
